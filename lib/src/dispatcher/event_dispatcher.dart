@@ -87,52 +87,56 @@ class EventDispatcher {
     }
   }
 
-  bool dispatch(Map<String, String?> event) {
-    // Handle continuous playing events after pulse
-    if (_lastSentEvent != null &&
-        _lastSentEvent?['evna'] == PlayerEvent.pulse.name &&
-        event['evna'] == PlayerEvent.playing.name) {
-      _log(
-          'Playing event after pulse - dropping event and scheduling next pulse');
-      _schedulePulseEvent(); // Schedule next pulse to maintain 10s interval
-      return false;
-    }
-
-    // Check if this is a duplicate playing event
-    if (_areEventsEqual(_lastSentEvent, event)) {
-      if (event['evna'] == PlayerEvent.playing.name) {
+  Future<bool> dispatch(Map<String, String?> event) async {
+    if (_sessionService.validateSession()) {
+      // Handle continuous playing events after pulse
+      if (_lastSentEvent != null &&
+          _lastSentEvent?['evna'] == PlayerEvent.pulse.name &&
+          event['evna'] == PlayerEvent.playing.name) {
         _log(
-            'Duplicate playing event detected - dropping event and scheduling pulse');
-        _schedulePulseEvent(); // Schedule pulse for continuous playing state
+            'Playing event after pulse - dropping event and scheduling next pulse');
+        _schedulePulseEvent(); // Schedule next pulse to maintain 10s interval
         return false;
       }
-      // For non-playing events, just drop duplicates
-      if (_lastSentEvent?['evna'] != PlayerEvent.pulse.name) {
-        _log('Duplicate event detected - dropping event');
-        return false;
+
+      // Check if this is a duplicate playing event
+      if (_areEventsEqual(_lastSentEvent, event)) {
+        if (event['evna'] == PlayerEvent.playing.name) {
+          _log(
+              'Duplicate playing event detected - dropping event and scheduling pulse');
+          _schedulePulseEvent(); // Schedule pulse for continuous playing state
+          return false;
+        }
+        // For non-playing events, just drop duplicates
+        if (_lastSentEvent?['evna'] != PlayerEvent.pulse.name) {
+          _log('Duplicate event detected - dropping event');
+          return false;
+        }
       }
-    }
 
-    _lastSentEvent = event;
+      _lastSentEvent = event;
 
-    // Only cancel pulse scheduling for non-playing events
-    if (event['evna'] != PlayerEvent.playing.name) {
-      _cancelPulseEvent();
-    }
-
-    if (_eventQueue.length >= config.maxQueueSize) {
-      if (config.useOverflowQueue) {
-        _overflowQueue.add(event);
-        _log(
-            'Main queue full - event added to overflow queue (size: ${_overflowQueue.length})');
-        return true;
-      } else {
-        _log('Event queue full - dropping event');
-        return false;
+      // Only cancel pulse scheduling for non-playing events
+      if (event['evna'] != PlayerEvent.playing.name) {
+        _cancelPulseEvent();
       }
+
+      if (_eventQueue.length >= config.maxQueueSize) {
+        if (config.useOverflowQueue) {
+          _overflowQueue.add(event);
+          _log(
+              'Main queue full - event added to overflow queue (size: ${_overflowQueue.length})');
+          return true;
+        } else {
+          _log('Event queue full - dropping event');
+          return false;
+        }
+      }
+      _eventQueue.add(event);
+      return true;
     }
-    _eventQueue.add(event);
-    return true;
+    await flush();
+    return false;
   }
 
   bool _areEventsEqual(
